@@ -22,7 +22,7 @@ spl_autoload_register(function($class) {
     }
 
     $class = substr($class, strlen($prefix));
-    $location = __DIR__ . 'src/Scrapper/' . str_replace('\\', '/', $class) . '.php';
+    $location = __DIR__ . '/path/to/src/Scrapper/' . str_replace('\\', '/', $class) . '.php';
 
     if (is_file($location)) {
         require_once($location);
