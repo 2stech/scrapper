@@ -1,0 +1,13 @@
+*.bak
+*.log
+*.tpl.php
+Thumbs.db
+desktop.ini
+.DS_Store
+.buildpath
+.project
+.settings
+vendor
+composer.lock
+/node_modules
+/bk
