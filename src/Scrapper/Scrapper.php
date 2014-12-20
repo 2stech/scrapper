@@ -2,24 +2,24 @@
 
 namespace Scrapper;
 
-use Scrapper\Downloader;
-
 class Scrapper
 {
     protected $base_dir;
 
     public function __construct($base_dir = './')
     {
-       $this->base_dir = $base_dir;
+        $this->base_dir = $base_dir;
     }
 
     public function scrap($links)
     {
         foreach ($links as $link) {
             $base = $this->findBase($link);
-            $path = $this->base_dir.$this->getPath($link);
+            $dir  = $this->getPath($link);
+            $path = $this->base_dir.$dir;
 
-            if(!is_dir($path)) {
+            if (!is_dir($path)) {
+                echo 'Creating directory.. ('.$dir.')'."\n";
                 mkdir($path);
             }
 
@@ -27,84 +27,120 @@ class Scrapper
         }
     }
 
-    function match($url, $path, $base) {
-
+    public function match($url, $path, $base)
+    {
         $url = str_replace(' ', '%20', $url);
         $content = file_get_contents($url);
 
-        if(preg_match_all('#td\>(.*)\<a href="(.*)">(.*)\<\/a\>#', $content, $matches)) {
+        if(preg_match_all('#<tr[^>]*>(.*?)</tr>#is', $content, $trs)) {
 
-            $total = count($matches[3]);
+            $total = count($trs[1])-1;
             echo 'Found: ('.$total.')'."\n";
 
-            foreach ($matches[3] as $key => $value) {
-                $dir = $path . $value;
-                $url = $base.$matches[2][$key];
+            foreach ($trs[1] as $serial => $tr) {
 
-                if($this->isDirectory($dir)) {
+                //$pattern = '#td\>(.*)\<a href="(.*)">(.*)\<\/a\>#';
+                $pattern = '#src="[^"](?:.*)file\=(.*)"(?:.*?)<a href="(.*)">(.*)<\/a>#is';
 
-                    if (!is_dir($dir)) {
-                        echo 'Creating directory ..('.$dir.')'."\n";
-                        mkdir($dir);
+                if (preg_match_all($pattern, $tr, $matches)) {
+
+                    foreach ($matches[3] as $key => $value) {
+
+                        if (empty($value)) {
+                            continue;
+                        }
+
+                        $dir = $path . $value;
+                        $url = $base.$matches[2][$key];
+
+                        if ($this->isDirectory($dir, $matches[1][$key])) {
+                            if (!is_dir($dir)) {
+                                echo 'Creating directory.. ('.$dir.')'."\n";
+                                mkdir($dir);
+                            }
+                            $this->match($url, $dir.'/', $base);
+                            continue;
+                        }
+
+                        echo '['.($serial).'/'.$total.'] '.$value;
+                        ob_flush();
+                        flush();
+                        ob_end_clean();
+
+                        $start = microtime(true);
+                        $downloader = $this->downloader($url, $dir);
+                        $size = $downloader->getTotalBytes();
+
+                        if (empty($size)) {
+                            echo " NOT FOUND"."\n";
+                            continue;
+                        }
+
+                        if (file_exists($dir) && is_file($dir)) {
+                            $filesize = filesize($dir);
+                            $percentage = ($size/$filesize) * 100;
+
+                            //echo ' S1:'.$size.'|'.$filesize;
+
+                            if ($percentage >= 98) {
+                                echo ' FOUND'."\n";
+                                continue;
+                            } else {
+                                @unlink($dir);
+                            }
+                        }
+
+                        echo " [".$this->formatBytes($size)."]";
+                        echo " ...\n";
+                        $downloader->download();
+
+                        echo "\n";
+                        echo '      DONE';
+                        echo ' '.$this->took($start);
+                        echo ' '.$this->formatBytes(filesize($dir));
+                        echo "\n\n";
                     }
-                    $this->match($url, $dir.'/', $base);
-                    continue;
                 }
-
-                echo '['.($key+1).'/'.$total.'] '.$value;
-                ob_flush();
-                flush();
-                ob_end_clean();
-                                    
-                if(file_exists($dir)) {
-                   echo ' FOUND'."\n";
-                    continue;
-                }
-
-                $start = microtime(true);
-
-                $downloader = $this->downloader($url, $dir);
-                echo " [".$this->formatBytes($downloader->getTotalBytes())."]";
-                echo " ...\n";
-                $downloader->download();
-
-                echo "\n";
-                echo 'DONE';
-                echo ' '.$this->took($start);
-                echo ' '.$this->formatBytes(filesize($dir));
-                echo "\n\n";
             }
+
         }
     }
 
-    function took($start) {
+    public function took($start)
+    {
         $end = microtime(true);
-        return number_format((($end-$start)/60),2). ' Min'; //value in seconds
+
+        return number_format((($end-$start)/60), 2). ' Min'; //value in seconds
     }
 
-    function formatBytes($bytes, $precision = 2) { 
-        $units = array('B', 'KB', 'MB', 'GB', 'TB'); 
+    public function formatBytes($bytes, $precision = 2)
+    {
+        $units = array('B', 'KB', 'MB', 'GB', 'TB');
 
-        $bytes = max($bytes, 0); 
-        $pow = floor(($bytes ? log($bytes) : 0) / log(1024)); 
-        $pow = min($pow, count($units) - 1); 
+        $bytes = max($bytes, 0);
+        $pow = floor(($bytes ? log($bytes) : 0) / log(1024));
+        $pow = min($pow, count($units) - 1);
 
         // Uncomment one of the following alternatives
          $bytes /= pow(1024, $pow);
-        // $bytes /= (1 << (10 * $pow)); 
+        // $bytes /= (1 << (10 * $pow));
+        return round($bytes, $precision) . '' . $units[$pow];
+    }
 
-        return round($bytes, $precision) . '' . $units[$pow]; 
-    } 
+    public function isDirectory($file, $icon = null)
+    {   
+        $ext = strtolower(strrchr($file, '.'));
+        if ($ext && $ext == $icon) {
+            return false;
+        }
 
-    function isDirectory($file)
-    {
         $extensions = array(
             '.avi','.mkv','.rmvb','.flv','.wmv','.mpg','.mp4',
             '.mov','.mpg', '.mp2', '.mpeg', '.mpg', '.mpe', '.mpv',
-            '.mpg', '.mpeg', '.m2v','.ogv', '.ogg'
+            '.mpg', '.mpeg', '.m2v','.ogv', '.ogg','.divx','.rar',
+            '.zip','.rm','.srt'
         );
 
-        $ext = strtolower(strrchr($file, '.'));
         if (in_array($ext, $extensions)) {
             return false;
         }
@@ -112,7 +148,7 @@ class Scrapper
         return true;
     }
 
-    function findBase($url)
+    public function findBase($url)
     {
         $url = parse_url($url);
         $base  = 'http://';
@@ -122,7 +158,7 @@ class Scrapper
         return $base;
     }
 
-    function getPath($url)
+    public function getPath($url)
     {
         $url = parse_url($url);
         $query  = array_values(array_filter(explode('/', urldecode($url['path']))));
@@ -130,7 +166,7 @@ class Scrapper
         return $query[count($query) - 1].'/';
     }
 
-    function downloader($url, $outputFile)
+    public function downloader($url, $outputFile)
     {
         $url = strtok($url, '?');
         $url = str_replace(" ", "%20", $url);
@@ -141,8 +177,7 @@ class Scrapper
         $downloader->setMaxParallelChunks(50);
         $downloader->setChunkSize(1024 * 1024);
 
-        $downloader->setProgressCallback(function($position, $totalBytes) use ($downloader)
-        {
+        $downloader->setProgressCallback(function ($position, $totalBytes) use ($downloader) {
             static $prevPosition = 0;
             static $prevTime = 0;
 
@@ -154,14 +189,14 @@ class Scrapper
             //$streams = $downloader->getRunningChunks();
 
             if ($now - $prevTime < 1e3) {
-              echo "speed: $speed; done: $positionFormatted / $totalBytesFormatted\n";
+                echo "      SPEED: $speed; done: $positionFormatted / $totalBytesFormatted\n";
             }
 
             $prevPosition = $position;
             $prevTime = $now;
 
             return true;
-          });
+        });
 
         return $downloader;
     }

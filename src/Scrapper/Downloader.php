@@ -79,6 +79,9 @@ class Downloader
 
     // Get file size
     $this->totalBytes = $this->getTotalBytes();
+    if ($this->totalBytes === false) {
+        return false;
+    }
 
     // Calculate total number of chunks
     $totalChunks = (int) ceil($this->totalBytes / $this->chunkSize);
@@ -325,8 +328,11 @@ class Downloader
     {
       // Get file size over HHTP
       if (false === ($this->totalBytes = $this->_httpFileSize(
-          $this->url, $this->maxRedirs, $this->cookie)))
-        throw new Exception("Unable to get file size of \"$this->url\"");
+          $this->url, $this->maxRedirs, $this->cookie))) {
+          
+          return false;
+          //throw new Exception("Unable to get file size of \"$this->url\"");
+      }
     }
     
     return $this->totalBytes;
