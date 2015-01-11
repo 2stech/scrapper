@@ -23,12 +23,12 @@ class Downloader
   private $url;
   private $outputFile;
   private $maxParallelChunks = 10;
-  private $chunkSize = 1048576;
+  private $chunkSize = 102400;
   private $maxRedirs = 20;
   private $progressCallback;
   private $minCallbackPeriod = 1; // Minimum time between two callbacks [sec]
   private $cookie;
-  private $networkTimeout = 60;   // [sec]
+  private $networkTimeout = 120;   // [sec]
   private $debugMode = false;
   private $runningChunks = 0;
   private $userAgent = 'PHP';
@@ -47,6 +47,39 @@ class Downloader
     $this->_cleanup();
   }
 
+  public function downloadAria()
+  {
+        $query  = array_values(array_filter(explode(DIRECTORY_SEPARATOR, urldecode($this->getOutputFile()))));
+        unset($query[count($query) - 1]);
+        $output = implode(DIRECTORY_SEPARATOR, $query);
+
+        //$output = $this->getOutputFile();
+
+        $cmd = __DIR__.'/bin/aria2c.exe '.$this->url.' -d "'.$output.'" -s20 -x10 --file-allocation=none -c';
+
+        $descriptorspec = array(
+            0 => array("pipe", "r"),  // stdin
+            1 => array("pipe", "w"),  // stdout -> we use this
+            2 => array("pipe", "w")   // stderr 
+        );
+
+        $process = proc_open($cmd, $descriptorspec, $pipes);
+
+        if (is_resource($process))
+        {
+            while( ! feof($pipes[1]))
+            {
+                $return_message = fgets($pipes[1], 1024);
+                if (strlen($return_message) == 0) break;
+
+                echo $return_message;
+                ob_flush();
+                flush();
+            }
+        }
+        return true;
+  }
+
   /**
    * Download file
    *
@@ -54,6 +87,11 @@ class Downloader
    */
   public function download()
   {
+      $size = $this->getTotalBytes();
+      if ($size > 3e+9 && strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
+          return $this->downloadAria();
+      }
+
     try
     {
       $this->_download();
@@ -91,9 +129,10 @@ class Downloader
     $this->runningChunks = 0;
     $chunksLeft = $totalChunks;
     $this->maxParallelChunks = min($this->maxParallelChunks, $totalChunks);
-    $this->curlMultiHandle = curl_multi_init();
     $curlSelectTimeout = min(1, $this->networkTimeout);
     
+    $this->curlMultiHandle = curl_multi_init();
+
     while (($this->runningChunks || $chunksLeft) && !$this->break)
     {
       // Add chunks to request
@@ -101,12 +140,11 @@ class Downloader
       $chunksToAdd = min($this->maxParallelChunks - $this->runningChunks, $chunksLeft);
       $chunksLeft -= $chunksToAdd;
 
-      for ($i = 0; $i < $chunksToAdd; $i++)
-        curl_multi_add_handle($this->curlMultiHandle,
-          $this->_allocateChunk());
+      for ($i = 0; $i < $chunksToAdd; $i++) {
+        curl_multi_add_handle($this->curlMultiHandle, $this->_allocateChunk());
+      }
 
       // Release funished curl handles
-      
       do
       {
         $curlMessages = 0;
@@ -121,7 +159,7 @@ class Downloader
             unset($this->writePositions[(string) $curlInfo['handle']]);
             curl_close($curlInfo['handle']);
           }
-          else throw new Exception("Transfer error: " . curl_error($curlInfo['handle']));
+          //else throw new Exception("Transfer error: " . curl_error($curlInfo['handle']));
         }
       }
       while ($curlMessages);
@@ -224,7 +262,7 @@ class Downloader
     $this->writePositions[(string) $curlHandle] += $dataLength;
     $this->doneBytes += $dataLength;
 
-    if (!is_null($this->progressCallback))
+    if (is_callable($this->progressCallback))
     {
       // Check time elapsed from last callback
       if ((microtime(true) - $this->lastProgressCallbackTime)
@@ -370,6 +408,4 @@ class Downloader
   {
     $this->userAgent = $userAgent;
   }
-
-  // </editor-fold>
 }
