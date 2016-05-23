@@ -11,7 +11,8 @@
         "bin-dir": "bin"
     },
     "require": {
-        "php" : ">=5.3.3"
+        "php" : ">=5.3.3",
+        "jkuchar/BigFileTools": "^2.0"
     },
     "autoload" : {
         "psr-0" : {"Scrapper\\":"src/"}
